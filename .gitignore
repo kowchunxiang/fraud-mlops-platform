@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Virtual environment
+.venv/
+
+# Dataset
+data/
+
+# Local model files
+models/
+
+# MLflow local files
+mlflow.db
+mlartifacts/
+
+# Database backup
+fraud_db_backup.sql
+
+# Environment / secrets
+.env
+
+# OS / editor
+.DS_Store
+Thumbs.db

@@ -1,32 +1,40 @@
-import joblib
 import mlflow
+import mlflow.pyfunc
+import joblib
 import pandas as pd
 
-from mlflow.models import infer_signature
+from mlflow.tracking import MlflowClient
 
 
+TRACKING_URI = "http://127.0.0.1:5000"
+MODEL_NAME = "fraud-detection-model"
 MODEL_PATH = "models/fraud_model.joblib"
 
-mlflow.set_tracking_uri("http://127.0.0.1:5000")
-mlflow.set_experiment("fraud-detection")
+
+mlflow.set_tracking_uri(TRACKING_URI)
 
 
 class FraudDetectionModel(mlflow.pyfunc.PythonModel):
 
-    def load_context(self, context):
-        bundle = joblib.load(context.artifacts["model_bundle"])
+    def __init__(self):
+
+        bundle = joblib.load(MODEL_PATH)
 
         self.model = bundle["model"]
         self.preprocessor = bundle["preprocessor"]
         self.threshold = bundle["threshold"]
         self.features = bundle["features"]
 
+
     def predict(self, context, model_input, params=None):
+
         data = model_input[self.features]
 
         data_ready = self.preprocessor.transform(data)
 
-        probabilities = self.model.predict_proba(data_ready)[:, 1]
+        probabilities = self.model.predict_proba(
+            data_ready
+        )[:, 1]
 
         predictions = [
             "FRAUD" if probability >= self.threshold else "NORMAL"
@@ -39,39 +47,45 @@ class FraudDetectionModel(mlflow.pyfunc.PythonModel):
         })
 
 
-input_example = pd.DataFrame([{
-    "step": 1,
-    "type": "TRANSFER",
-    "amount": 181.0,
-    "oldbalanceOrg": 181.0,
-    "newbalanceOrig": 0.0,
-    "oldbalanceDest": 0.0,
-    "newbalanceDest": 0.0
-}])
+with mlflow.start_run(
+    run_name="register-final-fraud-model"
+) as run:
 
-output_example = pd.DataFrame([{
-    "fraud_probability": 0.9388,
-    "prediction": "FRAUD"
-}])
+    model_info = mlflow.pyfunc.log_model(
+        artifact_path="model",
+        python_model=FraudDetectionModel()
+    )
 
-signature = infer_signature(
-    input_example,
-    output_example
+
+registered_model = mlflow.register_model(
+    model_uri=model_info.model_uri,
+    name=MODEL_NAME
 )
 
 
-with mlflow.start_run(run_name="register-fraud-model"):
+client = MlflowClient()
 
-    model_info = mlflow.pyfunc.log_model(
-        name="fraud_model",
-        python_model=FraudDetectionModel(),
-        artifacts={
-            "model_bundle": MODEL_PATH
-        },
-        input_example=input_example,
-        signature=signature,
-        registered_model_name="fraud-detection-model"
-    )
+client.set_registered_model_alias(
+    name=MODEL_NAME,
+    alias="champion",
+    version=registered_model.version
+)
 
-print("\nModel registered successfully!")
-print("Model URI:", model_info.model_uri)
+
+print(
+    "Model registered successfully!"
+)
+
+print(
+    "Model:",
+    MODEL_NAME
+)
+
+print(
+    "Version:",
+    registered_model.version
+)
+
+print(
+    "Alias: champion"
+)

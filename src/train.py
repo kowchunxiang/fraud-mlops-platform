@@ -1,16 +1,23 @@
 import pandas as pd
-from sklearn.model_selection import train_test_split
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
 from xgboost import XGBClassifier
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    precision_score,
+    recall_score,
+    f1_score,
+    fbeta_score
+)
 import joblib
 import mlflow
 
+
 DATA_PATH = "data/PS_20174392719_1491204439457_log.csv"
 
+# 真正给模型使用的 Features
 FEATURES = [
-    "step",
     "type",
     "amount",
     "oldbalanceOrg",
@@ -21,9 +28,17 @@ FEATURES = [
 
 TARGET = "isFraud"
 
+# step 只用来切分时间
+SPLIT_COLUMN = "step"
+
+
+# =========================
+# 1. LOAD DATA
+# =========================
+
 df = pd.read_csv(
     DATA_PATH,
-    usecols=FEATURES + [TARGET],
+    usecols=FEATURES + [TARGET, SPLIT_COLUMN],
     nrows=1000000
 )
 
@@ -35,10 +50,16 @@ y = df[TARGET]
 
 print("\nX shape:", X.shape)
 print("y shape:", y.shape)
+
 print("\nFraud counts:")
 print(y.value_counts())
 
-unique_steps = sorted(df["step"].unique())
+
+# =========================
+# 2. TIME-BASED SPLIT
+# =========================
+
+unique_steps = sorted(df[SPLIT_COLUMN].unique())
 
 test_split_position = int(len(unique_steps) * 0.8)
 test_split_step = unique_steps[test_split_position]
@@ -48,14 +69,16 @@ training_steps = unique_steps[:test_split_position]
 val_split_position = int(len(training_steps) * 0.8)
 val_split_step = training_steps[val_split_position]
 
-train_mask = df["step"] < val_split_step
+
+train_mask = df[SPLIT_COLUMN] < val_split_step
 
 val_mask = (
-    (df["step"] >= val_split_step)
-    & (df["step"] < test_split_step)
+    (df[SPLIT_COLUMN] >= val_split_step)
+    & (df[SPLIT_COLUMN] < test_split_step)
 )
 
-test_mask = df["step"] >= test_split_step
+test_mask = df[SPLIT_COLUMN] >= test_split_step
+
 
 X_train = X[train_mask]
 X_val = X[val_mask]
@@ -65,31 +88,34 @@ y_train = y[train_mask]
 y_val = y[val_mask]
 y_test = y[test_mask]
 
+
 print("\nValidation split step:", val_split_step)
 print("Test split step:", test_split_step)
 
 print(
     "Train step range:",
-    X_train["step"].min(),
+    df.loc[train_mask, SPLIT_COLUMN].min(),
     "-",
-    X_train["step"].max()
+    df.loc[train_mask, SPLIT_COLUMN].max()
 )
 
 print(
     "Validation step range:",
-    X_val["step"].min(),
+    df.loc[val_mask, SPLIT_COLUMN].min(),
     "-",
-    X_val["step"].max()
+    df.loc[val_mask, SPLIT_COLUMN].max()
 )
 
 print(
     "Test step range:",
-    X_test["step"].min(),
+    df.loc[test_mask, SPLIT_COLUMN].min(),
     "-",
-    X_test["step"].max()
+    df.loc[test_mask, SPLIT_COLUMN].max()
 )
 
+
 print("\nTraining:", X_train.shape)
+print("Validation:", X_val.shape)
 print("Testing:", X_test.shape)
 
 print("\nTraining fraud:")
@@ -98,10 +124,16 @@ print(y_train.value_counts())
 print("\nTesting fraud:")
 print(y_test.value_counts())
 
-categorical_features = ["type"]
+
+# =========================
+# 3. PREPROCESSING
+# =========================
+
+categorical_features = [
+    "type"
+]
 
 numeric_features = [
-    "step",
     "amount",
     "oldbalanceOrg",
     "newbalanceOrig",
@@ -109,21 +141,42 @@ numeric_features = [
     "newbalanceDest"
 ]
 
+
 preprocessor = ColumnTransformer(
     transformers=[
-        ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_features),
-        ("num", "passthrough", numeric_features)
+        (
+            "cat",
+            OneHotEncoder(handle_unknown="ignore"),
+            categorical_features
+        ),
+        (
+            "num",
+            "passthrough",
+            numeric_features
+        )
     ]
 )
 
+
 X_train_ready = preprocessor.fit_transform(X_train)
+
 X_val_ready = preprocessor.transform(X_val)
+
 X_test_ready = preprocessor.transform(X_test)
 
-print("Validation after preprocessing:", X_val_ready.shape)
 
 print("\nBefore preprocessing:", X_train.shape)
 print("After preprocessing:", X_train_ready.shape)
+
+print(
+    "Validation after preprocessing:",
+    X_val_ready.shape
+)
+
+
+# =========================
+# 4. BASELINE MODEL
+# =========================
 
 model = XGBClassifier(
     n_estimators=100,
@@ -132,36 +185,95 @@ model = XGBClassifier(
     random_state=42
 )
 
-model.fit(X_train_ready, y_train)
+model.fit(
+    X_train_ready,
+    y_train
+)
 
 print("\nModel training completed!")
+
+
+# =========================
+# 5. BASELINE EVALUATION
+# =========================
 
 y_pred = model.predict(X_val_ready)
 
 print("\nConfusion Matrix:")
-print(confusion_matrix(y_val, y_pred))
+print(
+    confusion_matrix(
+        y_val,
+        y_pred
+    )
+)
 
 print("\nClassification Report:")
-print(classification_report(y_val, y_pred, digits=4))
+print(
+    classification_report(
+        y_val,
+        y_pred,
+        digits=4
+    )
+)
 
-from sklearn.metrics import precision_score, recall_score, f1_score, fbeta_score
 
-y_prob = model.predict_proba(X_val_ready)[:, 1]
+# =========================
+# 6. THRESHOLD SEARCH
+# =========================
 
-thresholds = [0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90]
+y_prob = model.predict_proba(
+    X_val_ready
+)[:, 1]
+
+
+thresholds = [
+    0.60,
+    0.65,
+    0.70,
+    0.75,
+    0.80,
+    0.85,
+    0.90
+]
+
 
 best_threshold = None
 best_f2 = -1
 
+
 print("\nThreshold Comparison:")
 
-for threshold in thresholds:
-    y_pred_threshold = (y_prob >= threshold).astype(int)
 
-    precision = precision_score(y_val, y_pred_threshold)
-    recall = recall_score(y_val, y_pred_threshold)
-    f1 = f1_score(y_val, y_pred_threshold)
-    f2 = fbeta_score(y_val, y_pred_threshold, beta=2)
+for threshold in thresholds:
+
+    y_pred_threshold = (
+        y_prob >= threshold
+    ).astype(int)
+
+    precision = precision_score(
+        y_val,
+        y_pred_threshold,
+        zero_division=0
+    )
+
+    recall = recall_score(
+        y_val,
+        y_pred_threshold,
+        zero_division=0
+    )
+
+    f1 = f1_score(
+        y_val,
+        y_pred_threshold,
+        zero_division=0
+    )
+
+    f2 = fbeta_score(
+        y_val,
+        y_pred_threshold,
+        beta=2,
+        zero_division=0
+    )
 
     print(
         f"Threshold={threshold:.2f} | "
@@ -172,42 +284,68 @@ for threshold in thresholds:
     )
 
     if f2 > best_f2:
+
         best_f2 = f2
         best_threshold = threshold
+
 
 print("\nBest threshold:", best_threshold)
 print("Best F2:", best_f2)
 
-y_val_best = (y_prob >= best_threshold).astype(int)
+
+y_val_best = (
+    y_prob >= best_threshold
+).astype(int)
+
 
 print("\nBest Threshold Confusion Matrix:")
-print(confusion_matrix(y_val, y_val_best))
+
+print(
+    confusion_matrix(
+        y_val,
+        y_val_best
+    )
+)
+
 
 print("\nBest Threshold Classification Report:")
-print(classification_report(y_val, y_val_best, digits=4))
 
-print("\nTrain step range:", X_train["step"].min(), "-", X_train["step"].max())
-print("Test step range:", X_test["step"].min(), "-", X_test["step"].max())
+print(
+    classification_report(
+        y_val,
+        y_val_best,
+        digits=4
+    )
+)
+
+
+# =========================
+# 7. MODEL COMPARISON
+# =========================
 
 candidate_models = [
+
     {
         "name": "baseline",
         "n_estimators": 100,
         "max_depth": 4,
         "learning_rate": 0.1
     },
+
     {
         "name": "model_2",
         "n_estimators": 200,
         "max_depth": 4,
         "learning_rate": 0.05
     },
+
     {
         "name": "model_3",
         "n_estimators": 200,
         "max_depth": 6,
         "learning_rate": 0.05
     },
+
     {
         "name": "model_4",
         "n_estimators": 300,
@@ -216,12 +354,15 @@ candidate_models = [
     }
 ]
 
+
 best_model = None
 best_model_name = None
 best_model_threshold = None
 best_model_f2 = -1
 
+
 print("\n===== Model Comparison =====")
+
 
 for config in candidate_models:
 
@@ -232,26 +373,37 @@ for config in candidate_models:
         random_state=42
     )
 
-    candidate.fit(X_train_ready, y_train)
+    candidate.fit(
+        X_train_ready,
+        y_train
+    )
 
-    val_prob = candidate.predict_proba(X_val_ready)[:, 1]
+    val_prob = candidate.predict_proba(
+        X_val_ready
+    )[:, 1]
 
     model_best_f2 = -1
     model_best_threshold = None
 
+
     for threshold in thresholds:
 
-        val_pred = (val_prob >= threshold).astype(int)
+        val_pred = (
+            val_prob >= threshold
+        ).astype(int)
 
         f2 = fbeta_score(
             y_val,
             val_pred,
-            beta=2
+            beta=2,
+            zero_division=0
         )
 
         if f2 > model_best_f2:
+
             model_best_f2 = f2
             model_best_threshold = threshold
+
 
     print(
         config["name"],
@@ -261,6 +413,7 @@ for config in candidate_models:
         round(model_best_f2, 4)
     )
 
+
     if model_best_f2 > best_model_f2:
 
         best_model_f2 = model_best_f2
@@ -268,90 +421,230 @@ for config in candidate_models:
         best_model = candidate
         best_model_name = config["name"]
 
+
 print("\nBest model:", best_model_name)
 print("Best threshold:", best_model_threshold)
 print("Best validation F2:", best_model_f2)
 
-X_train_final = pd.concat([X_train, X_val])
-y_train_final = pd.concat([y_train, y_val])
 
-print("\nFinal training data:", X_train_final.shape)
-print("Final training fraud:")
-print(y_train_final.value_counts())
+# =========================
+# 8. FINAL TRAINING
+# =========================
 
-X_train_final_ready = preprocessor.fit_transform(X_train_final)
+X_train_final = pd.concat(
+    [
+        X_train,
+        X_val
+    ]
+)
+
+y_train_final = pd.concat(
+    [
+        y_train,
+        y_val
+    ]
+)
+
+
+print(
+    "\nFinal training data:",
+    X_train_final.shape
+)
+
+print("\nFinal training fraud:")
+
+print(
+    y_train_final.value_counts()
+)
+
+
+# 重新 fit preprocessing
+preprocessor.fit(
+    X_train_final
+)
+
+X_train_final_ready = preprocessor.transform(
+    X_train_final
+)
+
 
 final_model = XGBClassifier(
-    n_estimators=best_model.get_params()["n_estimators"],
-    max_depth=best_model.get_params()["max_depth"],
-    learning_rate=best_model.get_params()["learning_rate"],
+
+    n_estimators=
+        best_model.get_params()["n_estimators"],
+
+    max_depth=
+        best_model.get_params()["max_depth"],
+
+    learning_rate=
+        best_model.get_params()["learning_rate"],
+
     random_state=42
 )
 
-final_model.fit(X_train_final_ready, y_train_final)
+
+final_model.fit(
+    X_train_final_ready,
+    y_train_final
+)
+
 
 print("\nFinal model training completed!")
-print("Final model:", best_model_name)
-print("Final threshold:", best_model_threshold)
 
-X_test_final_ready = preprocessor.transform(X_test)
+print(
+    "Final model:",
+    best_model_name
+)
 
-test_prob = final_model.predict_proba(X_test_final_ready)[:, 1]
+print(
+    "Final threshold:",
+    best_model_threshold
+)
 
-test_pred = (test_prob >= best_model_threshold).astype(int)
+
+# =========================
+# 9. FINAL TEST
+# =========================
+
+X_test_final_ready = preprocessor.transform(
+    X_test
+)
+
+
+test_prob = final_model.predict_proba(
+    X_test_final_ready
+)[:, 1]
+
+
+test_pred = (
+    test_prob >= best_model_threshold
+).astype(int)
+
 
 print("\n===== FINAL TEST RESULT =====")
 
+
 print("\nTest Confusion Matrix:")
-print(confusion_matrix(y_test, test_pred))
+
+print(
+    confusion_matrix(
+        y_test,
+        test_pred
+    )
+)
+
 
 print("\nTest Classification Report:")
-print(classification_report(y_test, test_pred, digits=4))
 
-test_f2 = fbeta_score(y_test, test_pred, beta=2)
+print(
+    classification_report(
+        y_test,
+        test_pred,
+        digits=4
+    )
+)
 
-print("Final Test F2:", test_f2)
+
+test_f2 = fbeta_score(
+    y_test,
+    test_pred,
+    beta=2,
+    zero_division=0
+)
+
+
+print(
+    "Final Test F2:",
+    test_f2
+)
+
+
+# =========================
+# 10. SAVE MODEL
+# =========================
 
 model_bundle = {
+
     "model": final_model,
+
     "preprocessor": preprocessor,
+
     "threshold": best_model_threshold,
+
     "features": FEATURES
 }
+
 
 joblib.dump(
     model_bundle,
     "models/fraud_model.joblib"
 )
 
-print("\nModel saved to models/fraud_model.joblib")
 
-mlflow.set_tracking_uri("http://127.0.0.1:5000")
-mlflow.set_experiment("fraud-detection")
+print(
+    "\nModel saved to models/fraud_model.joblib"
+)
 
-test_precision = precision_score(y_test, test_pred)
-test_recall = recall_score(y_test, test_pred)
 
-with mlflow.start_run(run_name="final-xgboost-model"):
+# =========================
+# 11. MLFLOW
+# =========================
+
+mlflow.set_tracking_uri(
+    "http://127.0.0.1:5000"
+)
+
+mlflow.set_experiment(
+    "fraud-detection"
+)
+
+
+test_precision = precision_score(
+    y_test,
+    test_pred,
+    zero_division=0
+)
+
+test_recall = recall_score(
+    y_test,
+    test_pred,
+    zero_division=0
+)
+
+
+with mlflow.start_run(
+    run_name="final-xgboost-model"
+):
 
     mlflow.log_param(
         "n_estimators",
-        final_model.get_params()["n_estimators"]
+        final_model.get_params()[
+            "n_estimators"
+        ]
     )
 
     mlflow.log_param(
         "max_depth",
-        final_model.get_params()["max_depth"]
+        final_model.get_params()[
+            "max_depth"
+        ]
     )
 
     mlflow.log_param(
         "learning_rate",
-        final_model.get_params()["learning_rate"]
+        final_model.get_params()[
+            "learning_rate"
+        ]
     )
 
     mlflow.log_param(
         "threshold",
         best_model_threshold
+    )
+
+    mlflow.log_param(
+        "uses_step_feature",
+        False
     )
 
     mlflow.log_metric(
@@ -378,4 +671,7 @@ with mlflow.start_run(run_name="final-xgboost-model"):
         "models/fraud_model.joblib"
     )
 
-print("\nMLflow experiment logged!")
+
+print(
+    "\nMLflow experiment logged!"
+)

@@ -23,3 +23,11 @@ data/*.csv
 # OS
 .DS_Store
 Thumbs.db
+
+# Local MLflow
+mlruns/
+mlartifacts/
+mlflow.db
+
+# Database backups
+*.sql

@@ -1,4 +1,4 @@
-import csv
+﻿import csv
 import json
 import os
 import threading
@@ -8,6 +8,16 @@ from datetime import datetime, timezone
 
 from kafka import KafkaProducer
 
+from src.db import insert_prediction
+from src.predict import predict_transaction
+
+
+IS_RENDER = os.getenv("RENDER", "").lower() == "true"
+
+LIVE_MODE = os.getenv(
+    "LIVE_MODE",
+    "direct" if IS_RENDER else "kafka",
+).lower()
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv(
     "KAFKA_BOOTSTRAP_SERVERS",
@@ -21,8 +31,26 @@ KAFKA_TOPIC = os.getenv(
 
 PAYSIM_CSV = os.getenv(
     "PAYSIM_CSV",
-    "data/paysim_sample.csv",
+    "data/paysim_sample.csv"
+    if IS_RENDER
+    else "data/PS_20174392719_1491204439457_log.csv",
 )
+
+
+def normalise_prediction(result):
+    probability = float(result.get("fraud_probability", 0))
+    prediction_text = str(result.get("prediction", "")).upper()
+
+    is_fraud = prediction_text in {
+        "FRAUD",
+        "POTENTIAL FRAUD",
+        "1",
+    }
+
+    return (
+        "FRAUD" if is_fraud else "NORMAL",
+        probability,
+    )
 
 
 class PaySimReplayProducer:
@@ -44,13 +72,11 @@ class PaySimReplayProducer:
             return self._interval_ms
 
     def set_interval_ms(self, interval_ms):
-        interval_ms = max(
-            200,
-            min(int(interval_ms), 5000),
-        )
-
         with self._lock:
-            self._interval_ms = interval_ms
+            self._interval_ms = max(
+                200,
+                min(int(interval_ms), 5000),
+            )
 
     def start(self, interval_ms=1000):
         self.set_interval_ms(interval_ms)
@@ -58,7 +84,6 @@ class PaySimReplayProducer:
         with self._lock:
             if self._running:
                 return False
-
             self._running = True
 
         self._thread = threading.Thread(
@@ -73,15 +98,7 @@ class PaySimReplayProducer:
         with self._lock:
             self._running = False
 
-    def _build_producer(self):
-        return KafkaProducer(
-            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-            value_serializer=lambda value: json.dumps(value).encode("utf-8"),
-            acks="all",
-            retries=5,
-        )
-
-    def _row_to_event(self, row):
+    def row_to_event(self, row):
         return {
             "event_id": str(uuid.uuid4()),
             "event_time": datetime.now(timezone.utc).isoformat(),
@@ -93,76 +110,125 @@ class PaySimReplayProducer:
             "newbalanceDest": float(row["newbalanceDest"]),
         }
 
-    def _run(self):
+    def run_direct(self):
+        while self.running:
+            try:
+                with open(
+                    PAYSIM_CSV,
+                    "r",
+                    newline="",
+                    encoding="utf-8-sig",
+                ) as file:
+
+                    reader = csv.DictReader(file)
+
+                    for row in reader:
+                        if not self.running:
+                            break
+
+                        event = self.row_to_event(row)
+
+                        transaction = {
+                            "type": event["type"],
+                            "amount": event["amount"],
+                            "oldbalanceOrg": event["oldbalanceOrg"],
+                            "newbalanceOrig": event["newbalanceOrig"],
+                            "oldbalanceDest": event["oldbalanceDest"],
+                            "newbalanceDest": event["newbalanceDest"],
+                        }
+
+                        started = time.perf_counter()
+
+                        result = predict_transaction(transaction)
+
+                        latency_ms = round(
+                            (time.perf_counter() - started) * 1000
+                        )
+
+                        prediction, probability = normalise_prediction(result)
+
+                        insert_prediction(
+                            event_id=event["event_id"],
+                            event_time=event["event_time"],
+                            source="live",
+                            transaction=transaction,
+                            prediction=prediction,
+                            fraud_probability=probability,
+                            latency_ms=latency_ms,
+                        )
+
+                        self.last_error = None
+
+                        time.sleep(
+                            self.interval_ms / 1000
+                        )
+
+            except Exception as error:
+                self.last_error = str(error)
+                time.sleep(2)
+
+    def run_kafka(self):
         producer = None
 
         try:
             while self.running:
-                if not os.path.exists(PAYSIM_CSV):
-                    self.last_error = (
-                        f"PaySim file not found: {PAYSIM_CSV}"
-                    )
-                    time.sleep(2)
-                    continue
 
                 if producer is None:
-                    try:
-                        producer = self._build_producer()
+                    producer = KafkaProducer(
+                        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+                        value_serializer=lambda value:
+                        json.dumps(value).encode("utf-8"),
+                        acks="all",
+                        retries=5,
+                    )
+
+                with open(
+                    PAYSIM_CSV,
+                    "r",
+                    newline="",
+                    encoding="utf-8-sig",
+                ) as file:
+
+                    reader = csv.DictReader(file)
+
+                    for row in reader:
+                        if not self.running:
+                            break
+
+                        event = self.row_to_event(row)
+
+                        producer.send(
+                            KAFKA_TOPIC,
+                            event,
+                        )
+
+                        producer.flush(timeout=5)
+
                         self.last_error = None
-                    except Exception as error:
-                        self.last_error = str(error)
-                        time.sleep(2)
-                        continue
 
-                try:
-                    with open(
-                        PAYSIM_CSV,
-                        "r",
-                        newline="",
-                        encoding="utf-8",
-                    ) as file:
-                        reader = csv.DictReader(file)
+                        time.sleep(
+                            self.interval_ms / 1000
+                        )
 
-                        for row in reader:
-                            if not self.running:
-                                break
-
-                            try:
-                                event = self._row_to_event(row)
-
-                                producer.send(
-                                    KAFKA_TOPIC,
-                                    event,
-                                )
-
-                                producer.flush(timeout=5)
-
-                                self.last_error = None
-
-                            except Exception as error:
-                                self.last_error = str(error)
-
-                            time.sleep(
-                                self.interval_ms / 1000
-                            )
-
-                except Exception as error:
-                    self.last_error = str(error)
-                    time.sleep(2)
-
-                # Re-open the file when EOF is reached, so simulation continues.
+        except Exception as error:
+            self.last_error = str(error)
 
         finally:
-            if producer is not None:
+            if producer:
                 try:
-                    producer.flush(timeout=5)
-                    producer.close(timeout=5)
+                    producer.close()
                 except Exception:
                     pass
 
+    def _run(self):
+        try:
+            if LIVE_MODE == "direct":
+                self.run_direct()
+            else:
+                self.run_kafka()
+        finally:
             with self._lock:
                 self._running = False
 
 
 live_producer = PaySimReplayProducer()
-

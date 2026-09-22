@@ -211,8 +211,8 @@ function LiveMonitor({ apiUrl }) {
         <div>
           <h2>Live Fraud Monitor</h2>
           <p>
-            PaySim transactions replayed through Kafka
-            and scored by the fraud model.
+            PaySim transactions replayed and scored
+            by the fraud model.
           </p>
         </div>
 
@@ -348,7 +348,7 @@ function LiveMonitor({ apiUrl }) {
 
             <p>
               Start the simulation to replay PaySim
-              transactions through Kafka.
+              transactions.
             </p>
           </div>
 
@@ -443,7 +443,7 @@ function LiveMonitor({ apiUrl }) {
           ● {running ? "Simulation running" : "Simulation stopped"}
         </span>
 
-        <span>Kafka</span>
+        <span>Model pipeline</span>
         <span>Model online</span>
         <span>
           Latest risk:{" "}

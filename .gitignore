@@ -1,27 +1,25 @@
 # Python
+.venv/
 __pycache__/
 *.pyc
 .pytest_cache/
 
-# Virtual environment
-.venv/
-
-# Dataset
-data/
-
-# Local model files
-models/
-
-# MLflow local files
-mlflow.db
-mlartifacts/
-
-# Database backup
-fraud_db_backup.sql
-
-# Environment / secrets
+# Environment
 .env
+.env.*
 
-# OS / editor
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Large datasets
+data/*.csv
+*.xlsx
+*.xls
+
+# Temporary / backup
+*.backup_*
+
+# OS
 .DS_Store
 Thumbs.db

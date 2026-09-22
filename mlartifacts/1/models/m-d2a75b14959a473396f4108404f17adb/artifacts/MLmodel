@@ -1,0 +1,40 @@
+artifact_path: mlflow-artifacts:/1/models/m-d2a75b14959a473396f4108404f17adb/artifacts
+flavors:
+  python_function:
+    artifacts:
+      model_bundle:
+        path: artifacts/fraud_model.joblib
+        uri: models/fraud_model.joblib
+    cloudpickle_version: 3.1.2
+    code: null
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.pyfunc.model
+    python_model: python_model.pkl
+    python_version: 3.13.14
+    streamable: false
+is_signature_from_type_hint: false
+mlflow_version: 3.16.1
+model_id: m-d2a75b14959a473396f4108404f17adb
+model_size_bytes: 156197
+model_uuid: m-d2a75b14959a473396f4108404f17adb
+prompts: null
+run_id: 25a1f657ab414e1e85289a25bde7b536
+saved_input_example_info:
+  artifact_path: input_example.json
+  pandas_orient: split
+  serving_input_path: serving_input_example.json
+  type: dataframe
+signature:
+  inputs: '[{"type": "long", "name": "step", "required": true}, {"type": "string",
+    "name": "type", "required": true}, {"type": "double", "name": "amount", "required":
+    true}, {"type": "double", "name": "oldbalanceOrg", "required": true}, {"type":
+    "double", "name": "newbalanceOrig", "required": true}, {"type": "double", "name":
+    "oldbalanceDest", "required": true}, {"type": "double", "name": "newbalanceDest",
+    "required": true}]'
+  outputs: '[{"type": "double", "name": "fraud_probability", "required": true}, {"type":
+    "string", "name": "prediction", "required": true}]'
+  params: null
+type_hint_from_example: false
+utc_time_created: '2026-09-19 02:59:31.772167'

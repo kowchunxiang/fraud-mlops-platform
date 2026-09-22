@@ -1,97 +1,176 @@
 import json
-import psycopg2
+import os
+import threading
+import time
 
-from confluent_kafka import Consumer
+from kafka import KafkaConsumer
+
+from src.db import insert_prediction
 from src.predict import predict_transaction
 
 
-consumer = Consumer({
-    "bootstrap.servers": "localhost:9092",
-    "group.id": "fraud-detection-group",
-    "auto.offset.reset": "earliest"
-})
-
-consumer.subscribe(["transactions"])
-
-db = psycopg2.connect(
-    host="localhost",
-    port=5432,
-    dbname="fraud_db",
-    user="fraud_user",
-    password="fraud_password"
+KAFKA_BOOTSTRAP_SERVERS = os.getenv(
+    "KAFKA_BOOTSTRAP_SERVERS",
+    "localhost:9092",
 )
 
-print("Waiting for transaction...")
+KAFKA_TOPIC = os.getenv(
+    "KAFKA_TOPIC",
+    "fraud-transactions",
+)
 
-try:
-    while True:
-        message = consumer.poll(1.0)
 
-        if message is None:
-            continue
+def _normalise_prediction(result):
+    probability = float(
+        result.get(
+            "fraud_probability",
+            0,
+        )
+    )
 
-        if message.error():
-            print("Kafka error:", message.error())
-            continue
+    prediction_text = str(
+        result.get(
+            "prediction",
+            "",
+        )
+    ).upper()
 
-        transaction = json.loads(
-            message.value().decode("utf-8")
+    is_fraud = (
+        prediction_text == "FRAUD"
+        or prediction_text == "POTENTIAL FRAUD"
+        or prediction_text == "1"
+    )
+
+    return (
+        "FRAUD" if is_fraud else "NORMAL",
+        probability,
+    )
+
+
+class FraudConsumerService:
+    def __init__(self):
+        self._running = False
+        self._thread = None
+        self.last_error = None
+
+    @property
+    def running(self):
+        return self._running
+
+    def start(self):
+        if self._running:
+            return
+
+        self._running = True
+
+        self._thread = threading.Thread(
+            target=self._run,
+            daemon=True,
         )
 
-        print("\nTransaction received:")
-        print(transaction)
+        self._thread.start()
 
-        result = predict_transaction(transaction)
+    def stop(self):
+        self._running = False
 
-        print("\nFraud detection result:")
-        print(
-            "Fraud probability:",
-            result["fraud_probability"]
+    def _create_consumer(self):
+        return KafkaConsumer(
+            KAFKA_TOPIC,
+            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+            group_id="fraud-model-consumer-v1",
+            auto_offset_reset="latest",
+            enable_auto_commit=True,
+            value_deserializer=lambda value: json.loads(
+                value.decode("utf-8")
+            ),
+            consumer_timeout_ms=1000,
         )
-        print(
-            "Prediction:",
-            result["prediction"]
-        )
 
-        with db.cursor() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO transactions (
-                    step,
-                    type,
-                    amount,
-                    oldbalanceOrg,
-                    newbalanceOrig,
-                    oldbalanceDest,
-                    newbalanceDest,
-                    fraud_probability,
-                    prediction
-                )
-                VALUES (
-                    %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s
-                )
-                """,
-                (
-                    transaction["step"],
-                    transaction["type"],
-                    transaction["amount"],
-                    transaction["oldbalanceOrg"],
-                    transaction["newbalanceOrig"],
-                    transaction["oldbalanceDest"],
-                    transaction["newbalanceDest"],
-                    result["fraud_probability"],
-                    result["prediction"]
-                )
-            )
+    def _run(self):
+        while self._running:
+            consumer = None
 
-        db.commit()
+            try:
+                consumer = self._create_consumer()
+                self.last_error = None
 
-        print("Saved to PostgreSQL!")
+                while self._running:
+                    found_message = False
 
-except KeyboardInterrupt:
-    print("\nConsumer stopped.")
+                    for message in consumer:
+                        found_message = True
 
-finally:
-    consumer.close()
-    db.close()
+                        event = message.value
+
+                        transaction = {
+                            "type": str(
+                                event["type"]
+                            ).upper(),
+
+                            "amount": float(
+                                event["amount"]
+                            ),
+
+                            "oldbalanceOrg": float(
+                                event["oldbalanceOrg"]
+                            ),
+
+                            "newbalanceOrig": float(
+                                event["newbalanceOrig"]
+                            ),
+
+                            "oldbalanceDest": float(
+                                event["oldbalanceDest"]
+                            ),
+
+                            "newbalanceDest": float(
+                                event["newbalanceDest"]
+                            ),
+                        }
+
+                        started = time.perf_counter()
+
+                        result = predict_transaction(
+                            transaction
+                        )
+
+                        latency_ms = round(
+                            (
+                                time.perf_counter()
+                                - started
+                            )
+                            * 1000
+                        )
+
+                        prediction, probability = (
+                            _normalise_prediction(
+                                result
+                            )
+                        )
+
+                        insert_prediction(
+                            event_id=event["event_id"],
+                            event_time=event["event_time"],
+                            source="live",
+                            transaction=transaction,
+                            prediction=prediction,
+                            fraud_probability=probability,
+                            latency_ms=latency_ms,
+                        )
+
+                    if not found_message:
+                        continue
+
+            except Exception as error:
+                self.last_error = str(error)
+                time.sleep(2)
+
+            finally:
+                if consumer is not None:
+                    try:
+                        consumer.close()
+                    except Exception:
+                        pass
+
+
+fraud_consumer = FraudConsumerService()

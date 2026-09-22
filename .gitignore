@@ -16,7 +16,7 @@ frontend/node_modules/
 frontend/dist/
 
 # Large datasets
-data/*.csv
+data/PS_20174392719_1491204439457_log.csv
 *.xlsx
 *.xls
 

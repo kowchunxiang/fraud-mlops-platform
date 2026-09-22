@@ -21,7 +21,7 @@ KAFKA_TOPIC = os.getenv(
 
 PAYSIM_CSV = os.getenv(
     "PAYSIM_CSV",
-    "data/PS_20174392719_1491204439457_log.csv",
+    "data/paysim_sample.csv",
 )
 
 
@@ -165,3 +165,4 @@ class PaySimReplayProducer:
 
 
 live_producer = PaySimReplayProducer()
+

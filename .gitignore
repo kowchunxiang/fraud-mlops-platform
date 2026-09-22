@@ -1,4 +1,4 @@
-# Python
+﻿# Python
 .venv/
 __pycache__/
 *.pyc
@@ -7,6 +7,9 @@ __pycache__/
 # Environment
 .env
 .env.*
+
+# VS Code local settings
+.vscode/
 
 # Frontend
 frontend/node_modules/
@@ -17,17 +20,17 @@ data/*.csv
 *.xlsx
 *.xls
 
-# Temporary / backup
-*.backup_*
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Local MLflow
+# MLflow local runtime data
 mlruns/
 mlartifacts/
 mlflow.db
 
 # Database backups
 *.sql
+
+# Temporary / backup files
+*.backup_*
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,62 +1,118 @@
-# Real-Time Fraud Detection & MLOps Platform
+﻿# Real-Time Fraud Detection & MLOps Platform
 
-An end-to-end fraud detection system built with machine learning, real-time streaming, model versioning, API serving, database storage, monitoring, and CI.
+An end-to-end fraud detection platform built with machine learning, FastAPI, React, Apache Kafka, PostgreSQL, MLflow and Docker.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    A[PaySim Dataset] --> B[Producer]
-    B --> C[Kafka]
-    C --> D[Consumer]
-    D --> E[MLflow Champion Model]
-    E --> F[Fraud Prediction]
-    F --> G[PostgreSQL]
-    G --> H[Monitoring]
+    A[PaySim Dataset] --> B[Kafka Producer]
+    B --> C[Apache Kafka]
+    C --> D[Kafka Consumer]
+    D --> E[Fraud Detection Model]
+    E --> F[PostgreSQL]
+    F --> G[FastAPI]
+    G --> H[React Live Monitor]
 
-    I[External Client] --> J[FastAPI]
+    I[Analyze User] --> J[POST /predict]
     J --> E
+    J --> F
+
+    K[CSV / XLSX] --> L[Batch Processing]
+    L --> E
+    L --> F
+
+    M[Training Pipeline] --> N[MLflow Tracking / Registry]
 ```
 
-## What the System Does
+## Features
 
-The platform can:
+- XGBoost fraud detection
+- FastAPI REST API
+- React frontend
+- Single transaction analysis
+- Kafka-based simulated real-time streaming
+- PostgreSQL prediction history
+- Live fraud monitoring
+- CSV / XLSX batch screening
+- Real batch progress tracking
+- Fraud probability and prediction latency monitoring
+- Downloadable batch results
+- MLflow experiment tracking and Model Registry
+- Docker Compose
+- pytest and GitHub Actions CI
 
-- Train an XGBoost fraud detection model
-- Split data chronologically into train, validation, and test sets
-- Tune the fraud probability threshold using F2 score
-- Register and version models using MLflow
-- Serve the current `champion` model through FastAPI
-- Simulate real-time transaction streams using Kafka
-- Automatically score incoming transactions
-- Store predictions in PostgreSQL
-- Monitor transaction and fraud statistics
-- Run automated tests with pytest
-- Run tests automatically on GitHub Actions
+## Runtime Model
 
-## Model Performance
+The current application loads `models/fraud_model.joblib` through `src/predict.py`.
 
-Final test results:
+Single transaction analysis, Kafka live inference and batch screening use the same prediction logic.
 
-| Metric | Score |
-|---|---:|
-| Precision | 1.0000 |
-| Recall | 0.5424 |
-| F2 Score | 0.5970 |
-| Decision Threshold | 0.80 |
+MLflow is retained for experiment tracking, registration, versioning and model-management workflows. The current web/API inference path does not load the MLflow `champion` alias.
 
-The validation threshold was selected using F2 score to place more emphasis on detecting fraudulent transactions.
+## Model Inputs
+
+The runtime model uses six transaction fields:
+
+- `type`
+- `amount`
+- `oldbalanceOrg`
+- `newbalanceOrig`
+- `oldbalanceDest`
+- `newbalanceDest`
+
+## Single Transaction Pipeline
+
+```text
+React -> FastAPI /predict -> ML Model -> PostgreSQL
+```
+
+Predictions made through the Analyze page are stored with `source = single`.
+
+## Live Monitoring Pipeline
+
+```text
+PaySim -> Kafka Producer -> Apache Kafka -> Kafka Consumer -> ML Model -> PostgreSQL -> FastAPI -> React
+```
+
+Live predictions are stored with `source = live`.
+
+The live stream replays synthetic PaySim transactions. It is not connected to a real banking transaction network.
+
+## Batch Screening Pipeline
+
+```text
+CSV / XLSX -> FastAPI Batch Job -> ML Model -> PostgreSQL -> Results
+```
+
+Batch predictions are stored with `source = batch`.
+
+## PostgreSQL
+
+Predictions are stored in the `transactions` table. Stored fields include the transaction source, transaction inputs, prediction, fraud probability, inference latency, event time and database creation time.
 
 ## Technology Stack
 
+### Machine Learning
 - Python
 - XGBoost
 - scikit-learn
 - Pandas
+- joblib
+- MLflow
+
+### Backend and Data
 - FastAPI
 - Apache Kafka
 - PostgreSQL
-- MLflow
+- kafka-python
+
+### Frontend
+- React
+- Vite
+- CSS
+
+### Infrastructure
 - Docker
 - Docker Compose
 - pytest
@@ -66,172 +122,146 @@ The validation threshold was selected using F2 score to place more emphasis on d
 
 ```text
 fraud-mlops-platform/
-│
-├── .github/
-│   └── workflows/
-│       └── ci.yml
-│
-├── src/
-│   ├── api.py
-│   ├── consumer.py
-│   ├── monitor.py
-│   ├── predict.py
-│   ├── predict_registry.py
-│   ├── producer.py
-│   ├── register_model.py
-│   └── train.py
-│
-├── tests/
-│   └── test_predict.py
-│
-├── docker-compose.yml
-├── requirements.txt
-├── .gitignore
-└── README.md
+â”œâ”€â”€ .github/
+â”‚   â””â”€â”€ workflows/
+â”‚       â””â”€â”€ ci.yml
+â”œâ”€â”€ frontend/
+â”‚   â””â”€â”€ src/
+â”‚       â”œâ”€â”€ App.jsx
+â”‚       â”œâ”€â”€ App.css
+â”‚       â”œâ”€â”€ LiveMonitor.jsx
+â”‚       â”œâ”€â”€ LiveMonitor.css
+â”‚       â”œâ”€â”€ BatchScreening.jsx
+â”‚       â””â”€â”€ BatchScreening.css
+â”œâ”€â”€ models/
+â”‚   â””â”€â”€ fraud_model.joblib
+â”œâ”€â”€ src/
+â”‚   â”œâ”€â”€ api.py
+â”‚   â”œâ”€â”€ consumer.py
+â”‚   â”œâ”€â”€ db.py
+â”‚   â”œâ”€â”€ monitor.py
+â”‚   â”œâ”€â”€ predict.py
+â”‚   â”œâ”€â”€ predict_registry.py
+â”‚   â”œâ”€â”€ producer.py
+â”‚   â”œâ”€â”€ register_model.py
+â”‚   â””â”€â”€ train.py
+â”œâ”€â”€ tests/
+â”‚   â””â”€â”€ test_predict.py
+â”œâ”€â”€ docker-compose.yml
+â”œâ”€â”€ requirements.txt
+â”œâ”€â”€ .gitignore
+â””â”€â”€ README.md
 ```
 
-## Main Pipeline
+## Dataset
+
+The project uses the PaySim synthetic mobile-money transaction dataset. The dataset itself is excluded from GitHub because of its size.
+
+For local live simulation, place it at:
 
 ```text
-PaySim
-   ↓
-Producer
-   ↓
-Kafka
-   ↓
-Consumer
-   ↓
-MLflow Champion Model
-   ↓
-FRAUD / NORMAL
-   ↓
-PostgreSQL
-   ↓
-Monitoring
+data/PS_20174392719_1491204439457_log.csv
 ```
 
-A separate API path is also available:
+## Local Setup
 
-```text
-Client
-   ↓
-FastAPI
-   ↓
-MLflow Champion Model
-   ↓
-Prediction
+Create and activate a virtual environment:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 ```
-
-## Setup
 
 Install dependencies:
 
-```bash
-pip install -r requirements.txt
+```powershell
+python -m pip install -r requirements.txt
 ```
 
 Start Kafka and PostgreSQL:
 
-```bash
+```powershell
 docker compose up -d
 ```
 
-Start MLflow:
+Start FastAPI:
 
-```bash
-mlflow server --host 127.0.0.1 --port 5000 --workers 1
+```powershell
+python -m uvicorn src.api:app --host 127.0.0.1 --port 8000
 ```
 
-Train the model:
+The FastAPI application starts the Kafka consumer automatically.
 
-```bash
-python src/train.py
+Start React in another terminal:
+
+```powershell
+cd frontend
+npm install
+npm run dev
 ```
 
-Register the model with MLflow:
+Frontend: `http://localhost:5173`
 
-```bash
-python src/register_model.py
+FastAPI docs: `http://127.0.0.1:8000/docs`
+
+To start the PaySim producer, open the Live Monitor page and click **Start Live Simulation**.
+
+## Batch Screening
+
+Supported files:
+
+- CSV
+- XLSX
+
+Required columns:
+
+- `type`
+- `amount`
+- `oldbalanceOrg`
+- `newbalanceOrig`
+- `oldbalanceDest`
+- `newbalanceDest`
+
+## View Recent Database Records
+
+```powershell
+docker exec fraud-postgres psql -U fraud_user -d fraud_db -c "SELECT id, source, type, amount, prediction, fraud_probability, latency_ms, created_at FROM transactions ORDER BY created_at DESC LIMIT 5;"
 ```
-
-Start the FastAPI service:
-
-```bash
-uvicorn src.api:app --reload
-```
-
-FastAPI documentation:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-## Real-Time Streaming
-
-Start the consumer first:
-
-```bash
-python -m src.consumer
-```
-
-Then start the producer:
-
-```bash
-python src/producer.py
-```
-
-The producer simulates incoming transactions from the PaySim dataset.
-
-Kafka delivers each transaction to the consumer, which performs fraud prediction and stores the result in PostgreSQL.
-
-## Monitoring
-
-Run:
-
-```bash
-python src/monitor.py
-```
-
-The monitoring script reports:
-
-- Total transactions
-- Fraud predictions
-- Normal predictions
-- Fraud rate
-- Average fraud probability
-- Most recent fraud predictions
-
-## Automated Testing
-
-Run locally:
-
-```bash
-python -m pytest -q
-```
-
-GitHub Actions automatically runs the test suite whenever code is pushed or a pull request is created.
 
 ## MLflow
 
-MLflow is used for:
+MLflow is used for experiment tracking, logged parameters and metrics, model artifacts, Model Registry, model versioning and the optional `champion` alias workflow.
 
-- Experiment tracking
-- Parameters and metrics
-- Model artifacts
-- Model Registry
-- Model versioning
-- `champion` model alias
+The current React/FastAPI runtime uses `models/fraud_model.joblib`.
 
-Both FastAPI and the Kafka consumer use the model currently assigned to the `champion` alias.
+## Model Performance
 
-## Dataset
+| Metric | Score |
+|---|---:|
+| Precision | 1.0000 |
+| Recall | 0.5424 |
+| F2 Score | 0.5970 |
+| Decision Threshold | 0.80 |
 
-This project uses the PaySim synthetic mobile money transaction dataset.
+## Testing
 
-The dataset itself is not included in this repository because of its size.
+Backend:
+
+```powershell
+python -m pytest -q
+```
+
+Frontend:
+
+```powershell
+cd frontend
+npm run build
+```
+
+GitHub Actions runs both checks on pushes and pull requests.
 
 ## Current Scope
 
-This repository represents version 1.0 of the platform.
+This repository is a portfolio-scale end-to-end fraud detection and MLOps platform.
 
-The focus is on demonstrating an end-to-end machine learning engineering workflow including training, model management, real-time streaming, API serving, persistence, monitoring, containerized infrastructure, testing, and CI.
+The live stream uses synthetic PaySim data. The batch-processing job manager runs inside the FastAPI process and is intended for demo/portfolio-scale workloads. A larger production deployment would normally use a dedicated worker or task queue.

@@ -1,15 +1,13 @@
-pandas
+﻿pandas
 openpyxl
 python-multipart
 numpy
-scikit-learn
+scikit-learn==1.9.1
 xgboost
 joblib
 fastapi
 uvicorn
-confluent-kafka
 psycopg2-binary
 mlflow
 pytest
 kafka-python
-

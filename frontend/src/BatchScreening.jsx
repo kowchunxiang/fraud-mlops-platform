@@ -232,12 +232,12 @@ function BatchScreening({ apiUrl }) {
         </h3>
 
         <p>
-          CSV, XLS or XLSX
+          CSV or XLSX
         </p>
 
         <input
           type="file"
-          accept=".csv,.xls,.xlsx"
+          accept=".csv,.xlsx"
           disabled={loading}
           onChange={(event) => {
             const nextFile =

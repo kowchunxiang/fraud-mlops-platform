@@ -1,9 +1,0 @@
-{
-  "files.exclude": {
-    "**/.venv": true,
-    "**/node_modules": true,
-    "**/.pytest_cache": true,
-    "**/__pycache__": true,
-    "**/*.pyc": true
-  }
-}

@@ -459,13 +459,12 @@ async def batch_start(
 
     if extension not in [
         ".csv",
-        ".xls",
         ".xlsx",
     ]:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Only CSV, XLS and XLSX files are supported."
+                "Only CSV and XLSX files are supported."
             ),
         )
 

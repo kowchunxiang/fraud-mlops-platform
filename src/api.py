@@ -1,4 +1,4 @@
-import io
+﻿import io
 import os
 import threading
 import time
@@ -138,8 +138,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "consumer_running": fraud_consumer.running,
-        "consumer_error": fraud_consumer.last_error,
+        "consumer_running": fraud_consumer.running if LIVE_MODE == "kafka" else False,`r`n        "consumer_error": fraud_consumer.last_error if LIVE_MODE == "kafka" else None,
     }
 
 
@@ -227,8 +226,7 @@ def live_status():
         "running": live_producer.running,
         "interval_ms": live_producer.interval_ms,
         "producer_error": live_producer.last_error,
-        "consumer_running": fraud_consumer.running,
-        "consumer_error": fraud_consumer.last_error,
+        "consumer_running": fraud_consumer.running if LIVE_MODE == "kafka" else False,`r`n        "consumer_error": fraud_consumer.last_error if LIVE_MODE == "kafka" else None,
         **stats,
     }
 
@@ -563,3 +561,4 @@ def batch_results(job_id: str):
             "fraud_rate": job["fraud_rate"],
             "results": job["results"],
         }
+
